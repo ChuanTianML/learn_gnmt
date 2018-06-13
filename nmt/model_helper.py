@@ -471,7 +471,7 @@ def create_rnn_cell(unit_type, num_units, num_layers, num_residual_layers,
   Returns:
     An `RNNCell` instance.
   """
-  cell_list = _cell_list(unit_type=unit_type,
+  cell_list = _cell_list(unit_type=unit_type, # 创建一系列神经元，数量等同于网络层数
                          num_units=num_units,
                          num_layers=num_layers,
                          num_residual_layers=num_residual_layers,
@@ -486,6 +486,7 @@ def create_rnn_cell(unit_type, num_units, num_layers, num_residual_layers,
     return cell_list[0]
   else:  # Multi layers
     return tf.contrib.rnn.MultiRNNCell(cell_list) # 这一步的意义在于将这些零散的神经元连起来？
+    # 所以最终返回的是单步time step的多个神经元，个数是网络层数
 
 
 def gradient_clip(gradients, max_gradient_norm):

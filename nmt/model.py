@@ -100,10 +100,14 @@ class BaseModel(object):
     self.batch_size = tf.size(self.iterator.source_sequence_length) # ？？？
 
     # Projection
-    with tf.variable_scope(scope or "build_network"): # ？？？
+    with tf.variable_scope(scope or "build_network"): # 命名空间折腾做什么？？？
       with tf.variable_scope("decoder/output_projection"):
-        self.output_layer = layers_core.Dense(
+        self.output_layer = layers_core.Dense( 
             hparams.tgt_vocab_size, use_bias=False, name="output_projection")
+       	"""
+       		这一步构造一个全连接的网络，Dense是一个类
+       		其构造函数__init__(self, units)中的units：Integer or Long, dimensionality of the output space.
+       	"""
 
     ## Train graph
     res = self.build_graph(hparams, scope=scope)
@@ -298,6 +302,24 @@ class BaseModel(object):
       # Encoder
       encoder_outputs, encoder_state = self._build_encoder(hparams) # build encoder 图，输出了encoder的输出、状态
 
+      	""" 如果是单向网络：
+		    encoder_outputs:
+		    	If time_major == False: [batch_size, max_time, cell.output_size]
+		    	If time_major == True:  [max_time, batch_size, cell.output_size]
+		    encoder_state:
+		    	If cell.state_size is an int:        [batch_size, cell.state_size] # 相比output，没有了timestep
+		    	If cell.state_size is a TensorShape: [batch_size] + cell.state_size
+   		如果是双向网络：
+	   		encoder_outputs:
+	   			If time_major == False: [batch_size, max_time, cell.fw_output_size + cell.bw_output_size]
+		    	If time_major == True:  [max_time, batch_size, cell.output_size  + cell.bw_output_size]
+	   		encoder_state: 
+	   			if num_bi_layers == 1: (output_state_fw, output_state_bw)
+					output_state_fw: [batch_size, cell_fw.output_state_size]
+					output_state_bw: [batch_size, cell_bw.output_state_size]
+				else: 
+    	"""
+
       ## Decoder
       logits, sample_id, final_context_state = self._build_decoder( # build decoder 图，输出了
           encoder_outputs, encoder_state, hparams)
@@ -330,7 +352,8 @@ class BaseModel(object):
                           base_gpu=0):
     """Build a multi-layer RNN cell that can be used by encoder."""
 
-    return model_helper.create_rnn_cell(
+    # 返回的是单步time step的多个神经元，数量是神经元层数
+    return model_helper.create_rnn_cell( 
         unit_type=hparams.unit_type,
         num_units=hparams.num_units,
         num_layers=num_layers,
@@ -377,38 +400,61 @@ class BaseModel(object):
     maximum_iterations = self._get_infer_maximum_iterations( # decode 最大步数，inference time是什么
         hparams, iterator.source_sequence_length)
 
+      	""" encoder的输出
+      		如果是单向网络：
+			    encoder_outputs:
+			    	If time_major == False: [batch_size, max_time, cell.output_size]
+			    	If time_major == True:  [max_time, batch_size, cell.output_size]
+			    encoder_state:
+			    	If cell.state_size is an int:        [batch_size, cell.state_size] # 相比output，没有了timestep
+			    	If cell.state_size is a TensorShape: [batch_size] + cell.state_size
+			如果是双向网络：
+		   		encoder_outputs:
+		   			If time_major == False: [batch_size, max_time, cell.fw_output_size + cell.bw_output_size]
+			    	If time_major == True:  [max_time, batch_size, cell.output_size  + cell.bw_output_size]
+		   		encoder_state: 
+		   			if num_bi_layers == 1: (output_state_fw, output_state_bw)
+						output_state_fw: [batch_size, cell_fw.output_state_size]
+						output_state_bw: [batch_size, cell_bw.output_state_size]
+					else: 
+		"""
+
     ## Decoder.
-    with tf.variable_scope("decoder") as decoder_scope: # 没看太懂
+    with tf.variable_scope("decoder") as decoder_scope: # 构造decoder网络
       cell, decoder_initial_state = self._build_decoder_cell(
           hparams, encoder_outputs, encoder_state,
           iterator.source_sequence_length)
 
       ## Train or eval
-      if self.mode != tf.contrib.learn.ModeKeys.INFER:
+      if self.mode != tf.contrib.learn.ModeKeys.INFER: # 训练和验证模式
         # decoder_emp_inp: [max_time, batch_size, num_units]
-        target_input = iterator.target_input
+        target_input = iterator.target_input # 获取输入
         if self.time_major:
-          target_input = tf.transpose(target_input)
-        decoder_emb_inp = tf.nn.embedding_lookup(
+          target_input = tf.transpose(target_input) # 如果需要，转化为time major
+        decoder_emb_inp = tf.nn.embedding_lookup( # 进行embedding
             self.embedding_decoder, target_input)
 
         # Helper
-        helper = tf.contrib.seq2seq.TrainingHelper(
+        helper = tf.contrib.seq2seq.TrainingHelper( # 这个helper是干啥使的？？？
             decoder_emb_inp, iterator.target_sequence_length,
             time_major=self.time_major)
 
         # Decoder
-        my_decoder = tf.contrib.seq2seq.BasicDecoder(
-            cell,
+        my_decoder = tf.contrib.seq2seq.BasicDecoder( # TensorFlow内置的decoder
+            cell, # decoder cell
             helper,
             decoder_initial_state,)
 
         # Dynamic decoding
+        """	Perform dynamic decoding with decoder.
+			Calls initialize() once and step() repeatedly on the Decoder object.
+        """
         outputs, final_context_state, _ = tf.contrib.seq2seq.dynamic_decode(
             my_decoder,
             output_time_major=self.time_major,
             swap_memory=True,
             scope=decoder_scope)
+        # 这个outputs的具体内容是什么？？？
 
         sample_id = outputs.sample_id
 
@@ -418,7 +464,7 @@ class BaseModel(object):
         # We chose to apply the output_layer to all timesteps for speed:
         #   10% improvements for small models & 20% for larger ones.
         # If memory is a concern, we should apply output_layer per timestep.
-        logits = self.output_layer(outputs.rnn_output)
+        logits = self.output_layer(outputs.rnn_output) # 经过全连接网络层，并经过激活，得到在词典上的概率分布
 
       ## Inference
       else:
@@ -427,17 +473,18 @@ class BaseModel(object):
         start_tokens = tf.fill([self.batch_size], tgt_sos_id)
         end_token = tgt_eos_id
 
-        if beam_width > 0:
-          my_decoder = tf.contrib.seq2seq.BeamSearchDecoder(
+        if beam_width > 0: ## 如果用beamsearch
+          ### 使用TensorFlow内置的带有beamsearch的decoder
+          my_decoder = tf.contrib.seq2seq.BeamSearchDecoder( 
               cell=cell,
-              embedding=self.embedding_decoder,
-              start_tokens=start_tokens,
-              end_token=end_token,
-              initial_state=decoder_initial_state,
-              beam_width=beam_width,
-              output_layer=self.output_layer,
-              length_penalty_weight=length_penalty_weight)
-        else:
+              embedding=self.embedding_decoder, # A callable that takes a vector tensor of ids (argmax ids), or the params argument for embedding_lookup
+              start_tokens=start_tokens, # int32 vector shaped [batch_size], the start tokens.
+              end_token=end_token, # int32 scalar, the token that marks end of decoding
+              initial_state=decoder_initial_state, 
+              beam_width=beam_width, #Python integer, the number of beams.
+              output_layer=self.output_layer, #  An instance of tf.layers.Layer, i.e., tf.layers.Dense. Optional layer to apply to the RNN output prior to storing the result or sampling.
+              length_penalty_weight=length_penalty_weight) # Float weight to penalize length. Disabled with 0.0.
+        else: ## 如果不用beamsearch，用什么？？？
           # Helper
           sampling_temperature = hparams.sampling_temperature
           if sampling_temperature > 0.0:
@@ -473,6 +520,9 @@ class BaseModel(object):
           sample_id = outputs.sample_id
 
     return logits, sample_id, final_context_state
+    # logits: encoder之后再词典上的概率分布
+    # sample_id: ？？？
+    # final_context_state: 应该是decode之后的output_state
 
   def get_max_time(self, tensor):
     time_axis = 0 if self.time_major else 1
@@ -572,6 +622,7 @@ class Model(BaseModel):
                         (num_layers, num_residual_layers))
         cell = self._build_encoder_cell( # 构建encoder神经单元
             hparams, num_layers, num_residual_layers)
+        # 返回的是单步time step的多个神经元，数量是神经元层数，也就是说这个cell是一步的cell，而不是一个神经元
 
         encoder_outputs, encoder_state = tf.nn.dynamic_rnn( # 使用TensorFlow API构建单向网络
             cell,
@@ -594,6 +645,10 @@ class Model(BaseModel):
                 hparams=hparams,
                 num_bi_layers=num_bi_layers,
                 num_bi_residual_layers=num_bi_residual_layers))
+        """bi_encoder_state的形状： (output_state_fw, output_state_bw) 
+        		output_state_fw: [num_bi_layers, batch_size, cell_fw.output_state_size] 这形状是我推测的
+	   			output_state_bw: [num_bi_layers, batch_size, cell_bw.output_state_size]
+        """
 
         if num_bi_layers == 1: # 如果只有一个双向网络，
           encoder_state = bi_encoder_state
@@ -607,6 +662,23 @@ class Model(BaseModel):
       else: # 除了单向和双向之外，不认识的网络结构参数，报错
         raise ValueError("Unknown encoder_type %s" % hparams.encoder_type)
     return encoder_outputs, encoder_state
+    """ 如果是单向网络：
+		    encoder_outputs:
+		    	If time_major == False: [batch_size, max_time, cell.output_size]
+		    	If time_major == True:  [max_time, batch_size, cell.output_size]
+		    encoder_state:
+		    	If cell.state_size is an int:        [batch_size, cell.state_size] # 相比output，没有了timestep
+		    	If cell.state_size is a TensorShape: [batch_size] + cell.state_size
+	   	如果是双向网络：
+	   		encoder_outputs:
+	   			If time_major == False: [batch_size, max_time, cell.fw_output_size + cell.bw_output_size]
+		    	If time_major == True:  [max_time, batch_size, cell.output_size  + cell.bw_output_size]
+	   		encoder_state: 
+	   			if num_bi_layers == 1: (output_state_fw, output_state_bw)
+					output_state_fw: [batch_size, cell_fw.output_state_size]
+					output_state_bw: [batch_size, cell_bw.output_state_size]
+				else: 
+    """
 
   def _build_bidirectional_rnn(self, inputs, sequence_length,
                                dtype, hparams,
@@ -655,20 +727,45 @@ class Model(BaseModel):
 	    	output_bw:
 	    		if False == time_major: [batch_size, max_time, cell_bw.output_size]
 	    		if True  == time_major: [max_time, batch_size, cell_bw.output_size]
-	   	output_states: 
+	   	output_states: (output_state_fw, output_state_bw)  
+	   		output_state_fw: [num_bi_layers, batch_size, cell_fw.output_state_size] 这形状是我推测的
+	   		output_state_bw: [nun_bi_layers, batch_size, cell_bw.output_state_size]
     """
 
     return tf.concat(bi_outputs, -1), bi_state 
     # bi_outputs 经过concat之后，最后一维被拼接，即正反向输出被拼接
+    # 以time_major=False为例，拼接后的outputs： [batch_size, max_time, cell_fw.output_size + cell_bw.output_size]
+    # 最终返回的bi_state: 见上面
 
   def _build_decoder_cell(self, hparams, encoder_outputs, encoder_state,
                           source_sequence_length):
     """Build an RNN cell that can be used by decoder."""
     # We only make use of encoder_outputs in attention-based models
+
+  	""" encoder的输出
+  		如果是单向网络：
+		    encoder_outputs:
+		    	If time_major == False: [batch_size, max_time, cell.output_size]
+		    	If time_major == True:  [max_time, batch_size, cell.output_size]
+		    encoder_state:
+		    	If cell.state_size is an int:        [batch_size, cell.state_size] # 相比output，没有了timestep
+		    	If cell.state_size is a TensorShape: [batch_size] + cell.state_size
+		如果是双向网络：
+	   		encoder_outputs:
+	   			If time_major == False: [batch_size, max_time, cell.fw_output_size + cell.bw_output_size]
+		    	If time_major == True:  [max_time, batch_size, cell.output_size  + cell.bw_output_size]
+	   		encoder_state: 
+	   			if num_bi_layers == 1: (output_state_fw, output_state_bw)
+					output_state_fw: [batch_size, cell_fw.output_state_size]
+					output_state_bw: [batch_size, cell_bw.output_state_size]
+				else: 
+	"""
+
     if hparams.attention:
       raise ValueError("BasicModel doesn't support attention.")
 
-    cell = model_helper.create_rnn_cell(
+    # 同理于encoder，返回单步的一系列神经元，数量为网络层数
+    cell = model_helper.create_rnn_cell( 
         unit_type=hparams.unit_type,
         num_units=hparams.num_units,
         num_layers=self.num_decoder_layers,
@@ -687,3 +784,7 @@ class Model(BaseModel):
       decoder_initial_state = encoder_state
 
     return cell, decoder_initial_state
+    """
+    	构造decoder cell唯一需要encoder输出的地方是，初始化decoder_state用的是 encoder_state；
+    	encoder_outputs在这里没有用到。
+    """
