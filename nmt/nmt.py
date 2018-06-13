@@ -301,16 +301,16 @@ def create_hparams(flags):
       out_dir=flags.out_dir,
 
       # Networks
-      num_units=flags.num_units,
-      num_layers=flags.num_layers,  # Compatible
-      num_encoder_layers=(flags.num_encoder_layers or flags.num_layers),
-      num_decoder_layers=(flags.num_decoder_layers or flags.num_layers),
-      dropout=flags.dropout,
-      unit_type=flags.unit_type,
-      encoder_type=flags.encoder_type,
-      residual=flags.residual,
-      time_major=flags.time_major,
-      num_embeddings_partitions=flags.num_embeddings_partitions,
+      num_units=flags.num_units, # 神经元向量维度
+      num_layers=flags.num_layers,  # Compatible # 网络层数
+      num_encoder_layers=(flags.num_encoder_layers or flags.num_layers), # encoder网络层数
+      num_decoder_layers=(flags.num_decoder_layers or flags.num_layers), # decoder网络层数
+      dropout=flags.dropout, # 
+      unit_type=flags.unit_type, # LSTM/GRU/NAS
+      encoder_type=flags.encoder_type, # ？？？
+      residual=flags.residual, # 是否使用额外连接？？？
+      time_major=flags.time_major, #
+      num_embeddings_partitions=flags.num_embeddings_partitions, # ？？？
 
       # Attention mechanisms
       attention=flags.attention,
@@ -318,31 +318,31 @@ def create_hparams(flags):
       output_attention=flags.output_attention,
       pass_hidden_state=flags.pass_hidden_state,
 
-      # Train
-      optimizer=flags.optimizer,
-      num_train_steps=flags.num_train_steps,
-      batch_size=flags.batch_size,
-      init_op=flags.init_op,
-      init_weight=flags.init_weight,
-      max_gradient_norm=flags.max_gradient_norm,
-      learning_rate=flags.learning_rate,
-      warmup_steps=flags.warmup_steps,
-      warmup_scheme=flags.warmup_scheme,
-      decay_scheme=flags.decay_scheme,
-      colocate_gradients_with_ops=flags.colocate_gradients_with_ops,
+      # Train 
+      optimizer=flags.optimizer, # 优化方式 GSD/ADAM
+      num_train_steps=flags.num_train_steps, # ？？？
+      batch_size=flags.batch_size, # 
+      init_op=flags.init_op, # 初始化方式 正态/均匀
+      init_weight=flags.init_weight, # 初始化范围
+      max_gradient_norm=flags.max_gradient_norm, # ？？？
+      learning_rate=flags.learning_rate, #
+      warmup_steps=flags.warmup_steps, # ？？？
+      warmup_scheme=flags.warmup_scheme, # ？？？
+      decay_scheme=flags.decay_scheme, # ？？？
+      colocate_gradients_with_ops=flags.colocate_gradients_with_ops, # ？？？
 
       # Data constraints
-      num_buckets=flags.num_buckets,
-      max_train=flags.max_train,
-      src_max_len=flags.src_max_len,
-      tgt_max_len=flags.tgt_max_len,
+      num_buckets=flags.num_buckets, # ？？？
+      max_train=flags.max_train, # ？？？
+      src_max_len=flags.src_max_len, # 最大句长
+      tgt_max_len=flags.tgt_max_len, # 最大句长
 
       # Inference
       src_max_len_infer=flags.src_max_len_infer,
       tgt_max_len_infer=flags.tgt_max_len_infer,
-      infer_batch_size=flags.infer_batch_size,
-      beam_width=flags.beam_width,
-      length_penalty_weight=flags.length_penalty_weight,
+      infer_batch_size=flags.infer_batch_size, #
+      beam_width=flags.beam_width, # 
+      length_penalty_weight=flags.length_penalty_weight, # 具体惩罚原理不清楚？？？
       sampling_temperature=flags.sampling_temperature,
       num_translations_per_input=flags.num_translations_per_input,
 
@@ -541,12 +541,19 @@ def create_or_load_hparams(
 
 def run_main(flags, default_hparams, train_fn, inference_fn, target_session=""):
   """Run main."""
+  """
+    flags: 
+    default_hparams: 
+    train_fn: train function
+    inference_fn: inference function
+  """
   # Job
-  jobid = flags.jobid
+  jobid = flags.jobid # ？？？ jobid是什么
   num_workers = flags.num_workers
   utils.print_out("# Job id %d" % jobid)
 
   # Random
+  # 设置random和numpy的随机数种子
   random_seed = flags.random_seed
   if random_seed is not None and random_seed > 0:
     utils.print_out("# Set random seed to %d" % random_seed)
@@ -554,7 +561,7 @@ def run_main(flags, default_hparams, train_fn, inference_fn, target_session=""):
     np.random.seed(random_seed + jobid)
 
   ## Train / Decode
-  out_dir = flags.out_dir
+  out_dir = flags.out_dir # 这是输出什么的文件
   if not tf.gfile.Exists(out_dir): tf.gfile.MakeDirs(out_dir)
 
   # Load hparams.
@@ -596,6 +603,7 @@ def main(unused_argv):
   train_fn = train.train
   inference_fn = inference.inference
   run_main(FLAGS, default_hparams, train_fn, inference_fn)
+  # FLAGS和default_hparams什么关系？感觉重复了？？？
 
 
 if __name__ == "__main__":

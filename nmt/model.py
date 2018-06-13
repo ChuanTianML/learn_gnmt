@@ -83,7 +83,8 @@ class BaseModel(object):
     assert self.num_decoder_layers
 
     # Set num residual layers
-    if hasattr(hparams, "num_residual_layers"):  # compatible common_test_utils # ？？？
+    # 这个if else 逻辑，应该是说如果没分别指定encoder和decoder的多余连接层数，则认为两者使用相同的多余连接层数
+    if hasattr(hparams, "num_residual_layers"):  # compatible common_test_utils 
       self.num_encoder_residual_layers = hparams.num_residual_layers
       self.num_decoder_residual_layers = hparams.num_residual_layers
     else:
@@ -93,7 +94,9 @@ class BaseModel(object):
     # Initializer
     initializer = model_helper.get_initializer( # 获得初始化器
         hparams.init_op, hparams.random_seed, hparams.init_weight)
+    ## init_op指定初始化方式(均匀分布、正态分布)，后面两个参数分别是种子和范围。
     tf.get_variable_scope().set_initializer(initializer) # 这一步应该是用initializer初始化各个变量吧？？？
+    # tf.get_variable_scope()： Returns the current variable scope.
 
     # Embeddings
     self.init_embeddings(hparams, scope) # 初始化encoder和decoder的embedding
@@ -487,13 +490,18 @@ class BaseModel(object):
         else: ## 如果不用beamsearch，用什么？？？
           # Helper
           sampling_temperature = hparams.sampling_temperature
+          """
+          float32 scalar, value to divide the logits by before computing the softmax. 
+          Larger values (above 1.0) result in more random samples, while smaller values push the sampling distribution towards the argmax. 
+          Must be strictly greater than 0. Defaults to 1.0.
+          """
           if sampling_temperature > 0.0:
             helper = tf.contrib.seq2seq.SampleEmbeddingHelper(
                 self.embedding_decoder, start_tokens, end_token,
-                softmax_temperature=sampling_temperature,
+                softmax_temperature=sampling_temperature, # 这个参数的作用知晓了，但是具体是怎么采样的呢？？？
                 seed=hparams.random_seed)
           else:
-            helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(
+            helper = tf.contrib.seq2seq.GreedyEmbeddingHelper( # 最原始的贪婪算法，每个time step都输出概率最大的那个单词
                 self.embedding_decoder, start_tokens, end_token)
 
           # Decoder
@@ -513,7 +521,7 @@ class BaseModel(object):
             scope=decoder_scope)
 
         if beam_width > 0:
-          logits = tf.no_op()
+          logits = tf.no_op() # Does nothing. Only useful as a placeholder for control edges.
           sample_id = outputs.predicted_ids
         else:
           logits = outputs.rnn_output
