@@ -289,6 +289,8 @@ def add_arguments(parser):
 
 def create_hparams(flags):
   """Create training hparams."""
+  # flags: 是一个argparse.Namespace实例
+  # 所以这个函数的意义是将 argparse.Namespace 转换为 tf.contrib.training.HParams 实例么，为什么？？？
   return tf.contrib.training.HParams(
       # Data
       src=flags.src,
@@ -372,6 +374,10 @@ def create_hparams(flags):
 
 def extend_hparams(hparams):
   """Extend training hparams."""
+  # 函数功能： 参数预处理，根据现有参数生成一些新的参数，
+  #           例如将一些目录添加到参数列表，检查创建这些目录
+
+  # encoder 和 decoder 层数不同，则中间的隐藏状态传不过去
   assert hparams.num_encoder_layers and hparams.num_decoder_layers
   if hparams.num_encoder_layers != hparams.num_decoder_layers:
     hparams.pass_hidden_state = False
@@ -381,6 +387,7 @@ def extend_hparams(hparams):
                         hparams.num_decoder_layers))
 
   # Sanity checks
+  # 如果encoder是双向的，那么层数必须是偶数，这里做个检查
   if hparams.encoder_type == "bi" and hparams.num_encoder_layers % 2 != 0:
     raise ValueError("For bi, num_encoder_layers %d should be even" %
                      hparams.num_encoder_layers)
@@ -391,15 +398,17 @@ def extend_hparams(hparams):
                      hparams.num_encoder_layers)
 
   # Set residual layers
+  # 关于额外连接的参数预运算
   num_encoder_residual_layers = 0
   num_decoder_residual_layers = 0
-  if hparams.residual:
+  if hparams.residual: # 额外连接的层数要比总层数少1
     if hparams.num_encoder_layers > 1:
       num_encoder_residual_layers = hparams.num_encoder_layers - 1
     if hparams.num_decoder_layers > 1:
       num_decoder_residual_layers = hparams.num_decoder_layers - 1
 
-    if hparams.encoder_type == "gnmt":
+    # 如果是gnmt网络，那么由于前两层是双向网络，所以额外连接要再减1
+    if hparams.encoder_type == "gnmt": 
       # The first unidirectional layer (after the bi-directional layer) in
       # the GNMT encoder can't have residual connection due to the input is
       # the concatenation of fw_cell and bw_cell's outputs.
@@ -408,9 +417,11 @@ def extend_hparams(hparams):
       # Compatible for GNMT models
       if hparams.num_encoder_layers == hparams.num_decoder_layers:
         num_decoder_residual_layers = num_encoder_residual_layers
+  # 算出额外连接的层数之后，放到参数里面
   hparams.add_hparam("num_encoder_residual_layers", num_encoder_residual_layers)
   hparams.add_hparam("num_decoder_residual_layers", num_decoder_residual_layers)
 
+  # subword机制的参数，目前还不知道？？？
   if hparams.subword_option and hparams.subword_option not in ["spm", "bpe"]:
     raise ValueError("subword option must be either spm, or bpe")
 
@@ -425,6 +436,7 @@ def extend_hparams(hparams):
 
   ## Vocab
   # Get vocab file names first
+  # 获得词表文件，之后将其文件路径（目录+文件名）放到参数列表中
   if hparams.vocab_prefix:
     src_vocab_file = hparams.vocab_prefix + "." + hparams.src
     tgt_vocab_file = hparams.vocab_prefix + "." + hparams.tgt
@@ -432,20 +444,20 @@ def extend_hparams(hparams):
     raise ValueError("hparams.vocab_prefix must be provided.")
 
   # Source vocab
-  src_vocab_size, src_vocab_file = vocab_utils.check_vocab(
-      src_vocab_file,
-      hparams.out_dir,
-      check_special_token=hparams.check_special_token,
-      sos=hparams.sos,
+  src_vocab_size, src_vocab_file = vocab_utils.check_vocab( # 检查处理词表，不存在则报错
+      src_vocab_file, # 词表文件名
+      hparams.out_dir, # 词表存放的目录
+      check_special_token=hparams.check_special_token, # 是否检查helpwords存在与否
+      sos=hparams.sos, # 3个help words
       eos=hparams.eos,
       unk=vocab_utils.UNK)
 
   # Target vocab
-  if hparams.share_vocab:
+  if hparams.share_vocab: # 共享词表
     utils.print_out("  using source vocab for target")
     tgt_vocab_file = src_vocab_file
     tgt_vocab_size = src_vocab_size
-  else:
+  else: # target自己的词表
     tgt_vocab_size, tgt_vocab_file = vocab_utils.check_vocab(
         tgt_vocab_file,
         hparams.out_dir,
@@ -459,6 +471,7 @@ def extend_hparams(hparams):
   hparams.add_hparam("tgt_vocab_file", tgt_vocab_file)
 
   # Pretrained Embeddings:
+  # 获取设置 embedding 文件参数
   hparams.add_hparam("src_embed_file", "")
   hparams.add_hparam("tgt_embed_file", "")
   if hparams.embed_prefix:
@@ -472,11 +485,13 @@ def extend_hparams(hparams):
       hparams.tgt_embed_file = tgt_embed_file
 
   # Check out_dir
+  # 看来这个输出目录包括各种IO文件，此处检查目录是否存在，不存在则创建
   if not tf.gfile.Exists(hparams.out_dir):
     utils.print_out("# Creating output directory %s ..." % hparams.out_dir)
     tf.gfile.MakeDirs(hparams.out_dir)
 
   # Evaluation
+  # 森马东西？？？
   for metric in hparams.metrics:
     hparams.add_hparam("best_" + metric, 0)  # larger is better
     best_metric_dir = os.path.join(hparams.out_dir, "best_" + metric)
@@ -494,11 +509,15 @@ def extend_hparams(hparams):
 
 def ensure_compatible_hparams(hparams, default_hparams, hparams_path):
   """Make sure the loaded hparams is compatible with new changes."""
-  default_hparams = utils.maybe_parse_standard_hparams(
+  # hparams： 从文件加载的参数
+  # default_hparams： 解析获得的参数
+  # hparams_path： 标准参数
+  default_hparams = utils.maybe_parse_standard_hparams( # 首先合并解析参数和标准参数
       default_hparams, hparams_path)
 
   # For compatible reason, if there are new fields in default_hparams,
   #   we add them to the current hparams
+  # 如果加载的参数中不包含某个新解析的参数，则将该参数加到合并的参数列表中
   default_config = default_hparams.values()
   config = hparams.values()
   for key in default_config:
@@ -506,6 +525,7 @@ def ensure_compatible_hparams(hparams, default_hparams, hparams_path):
       hparams.add_hparam(key, default_config[key])
 
   # Update all hparams' keys if override_loaded_hparams=True
+  # 如果可以，用新解析的参数覆盖从文件中加载的参数
   if default_hparams.override_loaded_hparams:
     for key in default_config:
       if getattr(hparams, key) != default_config[key]:
@@ -519,13 +539,18 @@ def ensure_compatible_hparams(hparams, default_hparams, hparams_path):
 def create_or_load_hparams(
     out_dir, default_hparams, hparams_path, save_hparams=True):
   """Create hparams or load hparams from out_dir."""
-  hparams = utils.load_hparams(out_dir)
-  if not hparams:
-    hparams = default_hparams
+  # 总结来说，涉及到3种参数，解析参数default_hparams，标准参数hparams_path，存储参数out_dir，貌似解析参数优先级最高
+  # out_dir: 参数加载或保存路径
+  # default_hparams： tf.contrib.training.HParams类实例
+  # hparams_path： ？？？标准参数保存路径？ 
+  # ？？？ 标准参数保存路径中的参数和out_dir中的参数有什么区别
+  hparams = utils.load_hparams(out_dir) # tf.contrib.training.HParams类实例或者None
+  if not hparams: # 如果存储参数不存在，则首先合并解析后的参数和标准参数，然后扩展参数
+    hparams = default_hparams 
     hparams = utils.maybe_parse_standard_hparams(
         hparams, hparams_path)
     hparams = extend_hparams(hparams)
-  else:
+  else: # 如果存储参数存在，则将存储参数、解析参数、标准参数合并，确定不冲突
     hparams = ensure_compatible_hparams(hparams, default_hparams, hparams_path)
 
   # Save HParams
@@ -542,8 +567,8 @@ def create_or_load_hparams(
 def run_main(flags, default_hparams, train_fn, inference_fn, target_session=""):
   """Run main."""
   """
-    flags: 
-    default_hparams: 
+    flags: argparse.Namespace类实例,是解析成功的参数
+    default_hparams: tf.contrib.training.HParams类实例
     train_fn: train function
     inference_fn: inference function
   """
@@ -561,10 +586,12 @@ def run_main(flags, default_hparams, train_fn, inference_fn, target_session=""):
     np.random.seed(random_seed + jobid)
 
   ## Train / Decode
-  out_dir = flags.out_dir # 这是输出什么的文件
+  out_dir = flags.out_dir # 从下面create_or_load_hparams函数来看，这个路径存储参数，模型是否也存储在此？？？
   if not tf.gfile.Exists(out_dir): tf.gfile.MakeDirs(out_dir)
 
   # Load hparams.
+  # default_hparams 中是程序解析获得的参数，
+  # 下面这个函数，从解析参数、存储参数、标准参数3部分中获取参数，并处理兼容，形成最终的参数
   hparams = create_or_load_hparams(
       out_dir, default_hparams, flags.hparams_path, save_hparams=(jobid == 0))
 
@@ -599,15 +626,19 @@ def run_main(flags, default_hparams, train_fn, inference_fn, target_session=""):
 
 
 def main(unused_argv):
-  default_hparams = create_hparams(FLAGS)
-  train_fn = train.train
-  inference_fn = inference.inference
+  # FLAGS 是解析成功的参数，是一个argparse.Namespace类实例
+  default_hparams = create_hparams(FLAGS) # 返回一个tf.contrib.training.HParams类实例
+  # default_hparams 是由FLAGS而来的，FLAGS是解析来的，为什么叫 默认参数呢
+  train_fn = train.train # 从train.py中引用的train()函数
+  inference_fn = inference.inference# inference.py中引用的inference()函数
   run_main(FLAGS, default_hparams, train_fn, inference_fn)
-  # FLAGS和default_hparams什么关系？感觉重复了？？？
+  # FLAGS 和 default_hparams 什么关系？感觉重复了？？？
 
 
 if __name__ == "__main__":
   nmt_parser = argparse.ArgumentParser()
   add_arguments(nmt_parser)
   FLAGS, unparsed = nmt_parser.parse_known_args()
+  # FLAGS是解析成功的参数，是一个argparse.Namespace类实例
+  # unparsed是不认识的没有解析的参数，key和value被一视同仁保存在一个列表中
   tf.app.run(main=main, argv=[sys.argv[0]] + unparsed)

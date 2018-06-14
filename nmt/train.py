@@ -88,6 +88,7 @@ def run_external_eval(infer_model, infer_sess, model_dir, hparams,
                       summary_writer, save_best_dev=True, use_test_set=True,
                       avg_ckpts=False):
   """Compute external evaluation (bleu, rouge, etc.) for both dev / test."""
+  # 在验证集、测试集上面计算bleu分数
   with infer_model.graph.as_default():
     loaded_infer_model, global_step = model_helper.create_or_load_model(
         infer_model.model, model_dir, infer_sess, "infer")
@@ -137,6 +138,8 @@ def run_external_eval(infer_model, infer_sess, model_dir, hparams,
 def run_avg_external_eval(infer_model, infer_sess, model_dir, hparams,
                           summary_writer, global_step):
   """Creates an averaged checkpoint and run external eval with it."""
+  # 创建一个平均的模型，即将倒数N个模型的所有参数值对应求平均
+  # 然后测试这个平均模型
   avg_dev_scores, avg_test_scores = None, None
   if hparams.avg_ckpts:
     # Convert VariableName:0 to VariableName.
@@ -198,6 +201,7 @@ def run_full_eval(model_dir, infer_model, infer_sess, eval_model, eval_sess,
 
 def init_stats():
   """Initialize statistics that we want to accumulate."""
+  # 初始化要积累的量
   return {"step_time": 0.0, "loss": 0.0, "predict_count": 0.0,
           "total_count": 0.0, "grad_norm": 0.0}
 
@@ -249,7 +253,8 @@ def process_stats(stats, info, global_step, steps_per_stats, log_f):
 def before_train(loaded_train_model, train_model, train_sess, global_step,
                  hparams, log_f):
   """Misc tasks to do before training."""
-  stats = init_stats()
+  # 开始训练前的一部分杂务
+  stats = init_stats() # 初始化将要累计的量，step_time loss等
   info = {"train_ppl": 0.0, "speed": 0.0, "avg_step_time": 0.0,
           "avg_grad_norm": 0.0,
           "learning_rate": loaded_train_model.learning_rate.eval(
@@ -259,6 +264,7 @@ def before_train(loaded_train_model, train_model, train_sess, global_step,
                   (global_step, info["learning_rate"], time.ctime()), log_f)
 
   # Initialize all of the iterators
+  # 为什么要跳过一部分数据呢？
   skip_count = hparams.batch_size * hparams.epoch_step
   utils.print_out("# Init train iterator, skipping %d elements" % skip_count)
   train_sess.run(
@@ -266,6 +272,9 @@ def before_train(loaded_train_model, train_model, train_sess, global_step,
       feed_dict={train_model.skip_count_placeholder: skip_count})
 
   return stats, info, start_train_time
+  # stats：需要累计的一些量
+  # info：一些需要告知的信息
+  # start_train_time：开始训练时间
 
 
 def train(hparams, scope=None, target_session=""):
@@ -273,7 +282,7 @@ def train(hparams, scope=None, target_session=""):
   log_device_placement = hparams.log_device_placement
   out_dir = hparams.out_dir
   num_train_steps = hparams.num_train_steps
-  steps_per_stats = hparams.steps_per_stats
+  steps_per_stats = hparams.steps_per_stats # 多少step做一次累计
   steps_per_external_eval = hparams.steps_per_external_eval
   steps_per_eval = 10 * steps_per_stats
   avg_ckpts = hparams.avg_ckpts
@@ -281,9 +290,9 @@ def train(hparams, scope=None, target_session=""):
   if not steps_per_external_eval:
     steps_per_external_eval = 5 * steps_per_eval
 
-  if not hparams.attention:
-    model_creator = nmt_model.Model
-  else:  # Attention
+  if not hparams.attention: # 创建没有attention机制的模型
+    model_creator = nmt_model.Model 
+  else:  # Attention # 有attention机制
     if (hparams.encoder_type == "gnmt" or
         hparams.attention_architecture in ["gnmt", "gnmt_v2"]):
       model_creator = gnmt_model.GNMTModel
@@ -293,11 +302,12 @@ def train(hparams, scope=None, target_session=""):
       raise ValueError("Unknown attention architecture %s" %
                        hparams.attention_architecture)
 
-  train_model = model_helper.create_train_model(model_creator, hparams, scope)
-  eval_model = model_helper.create_eval_model(model_creator, hparams, scope)
-  infer_model = model_helper.create_infer_model(model_creator, hparams, scope)
+  train_model = model_helper.create_train_model(model_creator, hparams, scope) # 返回一个“字典”，内容有图、模型、迭代器
+  eval_model = model_helper.create_eval_model(model_creator, hparams, scope) # 返回“字典”，内容有图、模型、数据文件名占位、迭代器
+  infer_model = model_helper.create_infer_model(model_creator, hparams, scope) # 返回“字典”，内容有图、模型、数据文件名占位、batch_size占位，迭代器
 
   # Preload data for sample decoding.
+  # 提前加载好inference使用的文件
   dev_src_file = "%s.%s" % (hparams.dev_prefix, hparams.src)
   dev_tgt_file = "%s.%s" % (hparams.dev_prefix, hparams.tgt)
   sample_src_data = inference.load_data(dev_src_file)
@@ -307,15 +317,20 @@ def train(hparams, scope=None, target_session=""):
   model_dir = hparams.out_dir
 
   # Log and output files
+  # 日志文件
   log_file = os.path.join(out_dir, "log_%d" % time.time())
   log_f = tf.gfile.GFile(log_file, mode="a")
   utils.print_out("# log_file=%s" % log_file, log_f)
 
   # TensorFlow model
-  config_proto = utils.get_config_proto(
+  # GPU 和 CPU 的设置，例如什么情况下使用CPU，线程数量，以及使用GPU是一下全部申请，还是逐步获得
+  config_proto = utils.get_config_proto( 
       log_device_placement=log_device_placement,
       num_intra_threads=hparams.num_intra_threads,
       num_inter_threads=hparams.num_inter_threads)
+  # target： The execution engine to connect to. Defaults to using an in-process engine. 貌似是服务于分布式计算的
+  # config： A ConfigProto protocol buffer with configuration options for the session.
+  # graph：  The Graph to be launched (described above).
   train_sess = tf.Session(
       target=target_session, config=config_proto, graph=train_model.graph)
   eval_sess = tf.Session(
@@ -328,10 +343,11 @@ def train(hparams, scope=None, target_session=""):
         train_model.model, model_dir, train_sess, "train")
 
   # Summary writer
-  summary_writer = tf.summary.FileWriter(
+  summary_writer = tf.summary.FileWriter( # 貌似是一个用来记录训练过程中事件的类
       os.path.join(out_dir, summary_name), train_model.graph)
 
   # First evaluation
+  # 训练之前先做一次验证
   run_full_eval(
       model_dir, infer_model, infer_sess,
       eval_model, eval_sess, hparams,
@@ -343,33 +359,35 @@ def train(hparams, scope=None, target_session=""):
   last_external_eval_step = global_step
 
   # This is the training loop.
-  stats, info, start_train_time = before_train(
+  stats, info, start_train_time = before_train( # 训练之前需要处理的一些杂务
       loaded_train_model, train_model, train_sess, global_step, hparams, log_f)
+
+  # 开始训练
   while global_step < num_train_steps:
     ### Run a step ###
     start_time = time.time()
     try:
       step_result = loaded_train_model.train(train_sess)
-      hparams.epoch_step += 1
+      hparams.epoch_step += 1 # epoch_step记录这个epoch里面的步数
     except tf.errors.OutOfRangeError:
       # Finished going through the training dataset.  Go to next epoch.
       hparams.epoch_step = 0
       utils.print_out(
           "# Finished an epoch, step %d. Perform external evaluation" %
           global_step)
-      run_sample_decode(infer_model, infer_sess, model_dir, hparams,
+      run_sample_decode(infer_model, infer_sess, model_dir, hparams, # 采个样然后decode一下
                         summary_writer, sample_src_data, sample_tgt_data)
-      run_external_eval(infer_model, infer_sess, model_dir, hparams,
+      run_external_eval(infer_model, infer_sess, model_dir, hparams, # 验证集上跑一下，获得bleu分数
                         summary_writer)
 
-      if avg_ckpts:
+      if avg_ckpts: # 测试平均模型
         run_avg_external_eval(infer_model, infer_sess, model_dir, hparams,
                               summary_writer, global_step)
 
-      train_sess.run(
+      train_sess.run( # 开启下一个epoch前必要的重置
           train_model.iterator.initializer,
           feed_dict={train_model.skip_count_placeholder: 0})
-      continue
+      continue # 开始下一个epoch
 
     # Process step_result, accumulate stats, and write summary
     global_step, info["learning_rate"], step_summary = update_stats(
@@ -377,7 +395,8 @@ def train(hparams, scope=None, target_session=""):
     summary_writer.add_summary(step_summary, global_step)
 
     # Once in a while, we print statistics.
-    if global_step - last_stats_step >= steps_per_stats:
+    # 做一次累计
+    if global_step - last_stats_step >= steps_per_stats: 
       last_stats_step = global_step
       is_overflow = process_stats(
           stats, info, global_step, steps_per_stats, log_f)
@@ -389,7 +408,8 @@ def train(hparams, scope=None, target_session=""):
       # Reset statistics
       stats = init_stats()
 
-    if global_step - last_eval_step >= steps_per_eval:
+    # 做一次验证
+    if global_step - last_eval_step >= steps_per_eval: 
       last_eval_step = global_step
       utils.print_out("# Save eval, global step %d" % global_step)
       utils.add_summary(summary_writer, global_step, "train_ppl",
@@ -408,7 +428,8 @@ def train(hparams, scope=None, target_session=""):
       run_internal_eval(
           eval_model, eval_sess, model_dir, hparams, summary_writer)
 
-    if global_step - last_external_eval_step >= steps_per_external_eval:
+    # 做一次平均模型的验证
+    if global_step - last_external_eval_step >= steps_per_external_eval:  
       last_external_eval_step = global_step
 
       # Save checkpoint
@@ -427,13 +448,13 @@ def train(hparams, scope=None, target_session=""):
         run_avg_external_eval(infer_model, infer_sess, model_dir, hparams,
                               summary_writer, global_step)
 
-  # Done training
-  loaded_train_model.saver.save(
+  # Done training # 训练完成
+  loaded_train_model.saver.save( # 保存模型
       train_sess,
       os.path.join(out_dir, "translate.ckpt"),
       global_step=global_step)
 
-  (result_summary, _, final_eval_metrics) = (
+  (result_summary, _, final_eval_metrics) = ( # 最后做一次验证
       run_full_eval(
           model_dir, infer_model, infer_sess, eval_model, eval_sess, hparams,
           summary_writer, sample_src_data, sample_tgt_data, avg_ckpts))
@@ -442,8 +463,9 @@ def train(hparams, scope=None, target_session=""):
 
   summary_writer.close()
 
+  # 验证表现最好的模型
   utils.print_out("# Start evaluating saved best models.")
-  for metric in hparams.metrics:
+  for metric in hparams.metrics: # 这是个啥参数
     best_model_dir = getattr(hparams, "best_" + metric + "_dir")
     summary_writer = tf.summary.FileWriter(
         os.path.join(best_model_dir, summary_name), infer_model.graph)
@@ -454,7 +476,7 @@ def train(hparams, scope=None, target_session=""):
                     result_summary, log_f)
     summary_writer.close()
 
-    if avg_ckpts:
+    if avg_ckpts: # 验证最好的平均模型
       best_model_dir = getattr(hparams, "avg_best_" + metric + "_dir")
       summary_writer = tf.summary.FileWriter(
           os.path.join(best_model_dir, summary_name), infer_model.graph)
@@ -503,6 +525,7 @@ def _sample_decode(model, global_step, sess, hparams, iterator, src_data,
                    tgt_data, iterator_src_placeholder,
                    iterator_batch_size_placeholder, summary_writer):
   """Pick a sentence and decode."""
+  # 随机选一个句子，然后做解码
   decode_id = random.randint(0, len(src_data) - 1)
   utils.print_out("  # %d" % decode_id)
 

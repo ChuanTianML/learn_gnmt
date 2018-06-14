@@ -58,6 +58,7 @@ class ExtraArgs(collections.namedtuple(
   pass
 
 
+# 个人理解，创建一个只有key，还没有设置value的字典
 class TrainModel(
     collections.namedtuple("TrainModel", ("graph", "model", "iterator",
                                           "skip_count_placeholder"))):
@@ -68,6 +69,9 @@ def create_train_model(
     model_creator, hparams, scope=None, num_workers=1, jobid=0,
     extra_args=None):
   """Create train graph, model, and iterator."""
+  # 函数功能： 创建训练图，模型和迭代器
+
+  # 数据文件和词表文件
   src_file = "%s.%s" % (hparams.train_prefix, hparams.src)
   tgt_file = "%s.%s" % (hparams.train_prefix, hparams.tgt)
   src_vocab_file = hparams.src_vocab_file
@@ -76,13 +80,16 @@ def create_train_model(
   graph = tf.Graph()
 
   with graph.as_default(), tf.container(scope or "train"):
-    src_vocab_table, tgt_vocab_table = vocab_utils.create_vocab_tables(
+    # 读取词表文件到table（word2id）
+    src_vocab_table, tgt_vocab_table = vocab_utils.create_vocab_tables( 
         src_vocab_file, tgt_vocab_file, hparams.share_vocab)
 
+    # 加载数据（看此逻辑，两个文件按行对应）
     src_dataset = tf.data.TextLineDataset(src_file)
     tgt_dataset = tf.data.TextLineDataset(tgt_file)
     skip_count_placeholder = tf.placeholder(shape=(), dtype=tf.int64)
 
+    # 创建数据迭代器
     iterator = iterator_utils.get_iterator(
         src_dataset,
         tgt_dataset,
@@ -99,12 +106,14 @@ def create_train_model(
         num_shards=num_workers, # ？？？
         shard_index=jobid) # ？？？
 
+    # 因为分布式的事情，指定一下设备
     # Note: One can set model_device_fn to
     # `tf.train.replica_device_setter(ps_tasks)` for distributed training.
     model_device_fn = None
     if extra_args: model_device_fn = extra_args.model_device_fn
+
     with tf.device(model_device_fn):
-      model = model_creator(
+      model = model_creator( # 创建模型
           hparams,
           iterator=iterator,
           mode=tf.contrib.learn.ModeKeys.TRAIN,
@@ -113,6 +122,7 @@ def create_train_model(
           scope=scope,
           extra_args=extra_args)
 
+  # 返回一个“字典“，里面有图、模型、迭代器
   return TrainModel(
       graph=graph,
       model=model,
@@ -136,6 +146,7 @@ def create_eval_model(model_creator, hparams, scope=None, extra_args=None):
   with graph.as_default(), tf.container(scope or "eval"):
     src_vocab_table, tgt_vocab_table = vocab_utils.create_vocab_tables(
         src_vocab_file, tgt_vocab_file, hparams.share_vocab)
+    # 数据文件都是占位？？？
     src_file_placeholder = tf.placeholder(shape=(), dtype=tf.string)
     tgt_file_placeholder = tf.placeholder(shape=(), dtype=tf.string)
     src_dataset = tf.data.TextLineDataset(src_file_placeholder)
@@ -152,6 +163,8 @@ def create_eval_model(model_creator, hparams, scope=None, extra_args=None):
         num_buckets=hparams.num_buckets,
         src_max_len=hparams.src_max_len_infer,
         tgt_max_len=hparams.tgt_max_len_infer)
+    # 创建evaluation模型，
+    # 问题： 训练模型和验证模型貌似不是一个图，怎么联系起来的呢？？？
     model = model_creator(
         hparams,
         iterator=iterator,
@@ -182,11 +195,13 @@ def create_infer_model(model_creator, hparams, scope=None, extra_args=None):
   tgt_vocab_file = hparams.tgt_vocab_file
 
   with graph.as_default(), tf.container(scope or "infer"):
+    # 除了word2id，还有target的 id2word
     src_vocab_table, tgt_vocab_table = vocab_utils.create_vocab_tables(
         src_vocab_file, tgt_vocab_file, hparams.share_vocab)
     reverse_tgt_vocab_table = lookup_ops.index_to_string_table_from_file(
         tgt_vocab_file, default_value=vocab_utils.UNK)
 
+    # 数据占位，batch size 占位
     src_placeholder = tf.placeholder(shape=[None], dtype=tf.string)
     batch_size_placeholder = tf.placeholder(shape=[], dtype=tf.int64)
 
@@ -518,10 +533,10 @@ def avg_checkpoints(model_dir, num_last_checkpoints, global_step,
     utils.print_out("# No checkpoint file found in directory: %s" % model_dir)
     return None
 
+  # 获取倒数N个checkpoints，如果不够则不进行平均
   # Checkpoints are ordered from oldest to newest.
   checkpoints = (
       checkpoint_state.all_model_checkpoint_paths[-num_last_checkpoints:])
-
   if len(checkpoints) < num_last_checkpoints:
     utils.print_out(
         "# Skipping averaging checkpoints because not enough checkpoints is "
@@ -529,6 +544,7 @@ def avg_checkpoints(model_dir, num_last_checkpoints, global_step,
     )
     return None
 
+  # 准备好要存放平均模型的路径
   avg_model_dir = os.path.join(model_dir, "avg_checkpoints")
   if not tf.gfile.Exists(avg_model_dir):
     utils.print_out(
@@ -536,13 +552,15 @@ def avg_checkpoints(model_dir, num_last_checkpoints, global_step,
         avg_model_dir)
     tf.gfile.MakeDirs(avg_model_dir)
 
+  # 获取所有的变量，并进行全零初始化
   utils.print_out("# Reading and averaging variables in checkpoints:")
   var_list = tf.contrib.framework.list_variables(checkpoints[0])
   var_values, var_dtypes = {}, {}
   for (name, shape) in var_list:
-    if name != global_step_name:
+    if name != global_step_name: # global_step_name是什么
       var_values[name] = np.zeros(shape)
 
+  # 所有变量累加
   for checkpoint in checkpoints:
     utils.print_out("    %s" % checkpoint)
     reader = tf.contrib.framework.load_checkpoint(checkpoint)
@@ -551,11 +569,12 @@ def avg_checkpoints(model_dir, num_last_checkpoints, global_step,
       var_dtypes[name] = tensor.dtype
       var_values[name] += tensor
 
-  for name in var_values:
+  for name in var_values: # 做平均
     var_values[name] /= len(checkpoints)
 
   # Build a graph with same variables in the checkpoints, and save the averaged
   # variables into the avg_model_dir.
+  # 建个图，把平均变量值加载进去，然后把模型保存了
   with tf.Graph().as_default():
     tf_vars = [
         tf.get_variable(v, shape=var_values[v].shape, dtype=var_dtypes[name])
@@ -563,7 +582,7 @@ def avg_checkpoints(model_dir, num_last_checkpoints, global_step,
     ]
 
     placeholders = [tf.placeholder(v.dtype, shape=v.shape) for v in tf_vars]
-    assign_ops = [tf.assign(v, p) for (v, p) in zip(tf_vars, placeholders)]
+    assign_ops = [tf.assign(v, p) for (v, p) in zip(tf_vars, placeholders)] # 每个变量都创建一个赋值操作
     global_step_var = tf.Variable(
         global_step, name=global_step_name, trainable=False)
     saver = tf.train.Saver(tf.all_variables())
@@ -585,17 +604,20 @@ def avg_checkpoints(model_dir, num_last_checkpoints, global_step,
 
 def create_or_load_model(model, model_dir, session, name):
   """Create translation model and initialize or load parameters in session."""
+  """先尝试加载最新模型，如果没有，则初始化模型，并告知用时
+  """
   latest_ckpt = tf.train.latest_checkpoint(model_dir)
   if latest_ckpt:
     model = load_model(model, latest_ckpt, session, name)
   else:
     start_time = time.time()
-    session.run(tf.global_variables_initializer())
-    session.run(tf.tables_initializer())
+    session.run(tf.global_variables_initializer()) # 全局变量初始化
+    session.run(tf.tables_initializer()) # 初始化所有的表
     utils.print_out("  created %s model with fresh parameters, time %.2fs" %
                     (name, time.time() - start_time))
 
-  global_step = model.global_step.eval(session=session)
+  # tf.Variable().eval(): In a session, computes and returns the value of this variable.
+  global_step = model.global_step.eval(session=session) 
   return model, global_step
 
 

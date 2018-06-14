@@ -47,6 +47,10 @@ def load_vocab(vocab_file):
 def check_vocab(vocab_file, out_dir, check_special_token=True, sos=None,
                 eos=None, unk=None):
   """Check if vocab_file doesn't exist, create from corpus_file."""
+  # 检查词表文件存在与否，
+  #   若不存在则报错
+  #   若存在，则检查前3个是否是help words，若不是，加上并存到此表文件中
+  # 注：help words可以指定，若不指定，使用本文件定义的
   if tf.gfile.Exists(vocab_file):
     utils.print_out("# Vocab file %s exists" % vocab_file)
     vocab, vocab_size = load_vocab(vocab_file)
@@ -78,7 +82,8 @@ def check_vocab(vocab_file, out_dir, check_special_token=True, sos=None,
 
 def create_vocab_tables(src_vocab_file, tgt_vocab_file, share_vocab):
   """Creates vocab tables for src_vocab_file and tgt_vocab_file."""
-  src_vocab_table = lookup_ops.index_table_from_file(
+  src_vocab_table = lookup_ops.index_table_from_file( # 返回一个word2id的table
+  # The lookup table to map a key_dtype Tensor to index int64 Tensor.
       src_vocab_file, default_value=UNK_ID)
   if share_vocab:
     tgt_vocab_table = src_vocab_table

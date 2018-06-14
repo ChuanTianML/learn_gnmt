@@ -86,27 +86,33 @@ def load_hparams(model_dir):
   hparams_file = os.path.join(model_dir, "hparams")
   if tf.gfile.Exists(hparams_file):
     print_out("# Loading hparams from %s" % hparams_file)
-    with codecs.getreader("utf-8")(tf.gfile.GFile(hparams_file, "rb")) as f:
+    with codecs.getreader("utf-8")(tf.gfile.GFile(hparams_file, "rb")) as f: # tf.gfile.GFile是一种应该是服务于多线程的文件打开方式
       try:
-        hparams_values = json.load(f)
-        hparams = tf.contrib.training.HParams(**hparams_values)
+        hparams_values = json.load(f) # json.load返回一个字典，key是字符串，value是值
+        hparams = tf.contrib.training.HParams(**hparams_values) # **hparams_values将字典转化为key=value的形式，key不带单引号
       except ValueError:
         print_out("  can't load hparams file")
         return None
     return hparams
   else:
     return None
+  # 最终，返回一个tf.contrib.training.HParams类实例
 
 
 def maybe_parse_standard_hparams(hparams, hparams_path):
   """Override hparams values with existing standard hparams config."""
-  if not hparams_path:
+  # 函数功能：用标准参数覆盖hparams（两者重叠的部分）
+  # hparams: tf.contrib.training.HParams类实例
+  # hparams_path: 标准参数保存路径
+  if not hparams_path: # 标准参数路径不存在
     return hparams
 
-  if tf.gfile.Exists(hparams_path):
+  if tf.gfile.Exists(hparams_path): # 标准参数存在，则
     print_out("# Loading standard hparams from %s" % hparams_path)
     with tf.gfile.GFile(hparams_path, "r") as f:
-      hparams.parse_json(f.read())
+      hparams.parse_json(f.read()) 
+      # parse_json: Override hyperparameter values, parsing new values from a json object.
+      # 用标准参数覆盖hparams
 
   return hparams
 
@@ -139,11 +145,19 @@ def get_config_proto(log_device_placement=False, allow_soft_placement=True,
   # GPU options:
   # https://www.tensorflow.org/versions/r0.10/how_tos/using_gpu/index.html
   config_proto = tf.ConfigProto(
-      log_device_placement=log_device_placement,
-      allow_soft_placement=allow_soft_placement)
+      log_device_placement=log_device_placement, #  Whether device placements should be logged.
+      allow_soft_placement=allow_soft_placement) # 
+  """ Whether soft placement is allowed. If allow_soft_placement is true,
+      an op will be placed on CPU if
+         1. there's no GPU implementation for the OP
+         2. no GPU devices are known or registered
+         3. need to co-locate with reftype input(s) which are from CPU.
+  """
   config_proto.gpu_options.allow_growth = True
+  # If true, the allocator does not pre-allocate the entire specified
+  # GPU memory region, instead starting small and growing as needed.
 
-  # CPU threads options
+  # CPU threads options # 设置使用CPU时的线程数量
   if num_intra_threads:
     config_proto.intra_op_parallelism_threads = num_intra_threads
   if num_inter_threads:
