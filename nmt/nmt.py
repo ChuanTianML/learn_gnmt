@@ -42,12 +42,9 @@ def add_arguments(parser):
 
   # network
   parser.add_argument("--num_units", type=int, default=32, help="Network size.")
-  parser.add_argument("--num_layers", type=int, default=2,
-                      help="Network depth.")
-  parser.add_argument("--num_encoder_layers", type=int, default=None,
-                      help="Encoder depth, equal to num_layers if None.")
-  parser.add_argument("--num_decoder_layers", type=int, default=None,
-                      help="Decoder depth, equal to num_layers if None.")
+  parser.add_argument("--num_layers", type=int, default=2, help="Network depth.")
+  parser.add_argument("--num_encoder_layers", type=int, default=None, help="Encoder depth, equal to num_layers if None.")
+  parser.add_argument("--num_decoder_layers", type=int, default=None, help="Decoder depth, equal to num_layers if None.")
   parser.add_argument("--encoder_type", type=str, default="uni", help="""\
       uni | bi | gnmt.
       For bi, we build num_encoder_layers/2 bi-directional layers.
@@ -60,6 +57,7 @@ def add_arguments(parser):
   parser.add_argument("--time_major", type="bool", nargs="?", const=True,
                       default=True,
                       help="Whether to use time-major mode for dynamic RNN.")
+  # ？？？
   parser.add_argument("--num_embeddings_partitions", type=int, default=0,
                       help="Number of partitions for embedding vars.")
 
@@ -100,6 +98,7 @@ def add_arguments(parser):
   parser.add_argument("--optimizer", type=str, default="sgd", help="sgd | adam")
   parser.add_argument("--learning_rate", type=float, default=1.0,
                       help="Learning rate. Adam: 0.001 | 0.0001")
+  # 以下3个参数都是控制 学习率的动态调整的，？？？
   parser.add_argument("--warmup_steps", type=int, default=0,
                       help="How many steps we inverse-decay learning.")
   parser.add_argument("--warmup_scheme", type=str, default="t2t", help="""\
@@ -120,6 +119,7 @@ def add_arguments(parser):
 
   parser.add_argument(
       "--num_train_steps", type=int, default=12000, help="Num steps to train.")
+  # ？？？ 防止梯度爆炸的东西？
   parser.add_argument("--colocate_gradients_with_ops", type="bool", nargs="?",
                       const=True,
                       default=True,
@@ -133,7 +133,7 @@ def add_arguments(parser):
                       help=("for uniform init_op, initialize weights "
                             "between [-this, this]."))
 
-  # data
+  # data # 数据文件名、前缀即路径、模型和日志输出路径
   parser.add_argument("--src", type=str, default=None,
                       help="Source suffix, e.g., en.")
   parser.add_argument("--tgt", type=str, default=None,
@@ -171,7 +171,7 @@ def add_arguments(parser):
                       vocab files.\
                       """)
 
-  # Sequence lengths
+  # Sequence lengths # 句子序列最大长度限制
   parser.add_argument("--src_max_len", type=int, default=50,
                       help="Max length of src sequences during training.")
   parser.add_argument("--tgt_max_len", type=int, default=50,
@@ -187,23 +187,26 @@ def add_arguments(parser):
   # Default settings works well (rarely need to change)
   parser.add_argument("--unit_type", type=str, default="lstm",
                       help="lstm | gru | layer_norm_lstm | nas")
+  # ？？？
   parser.add_argument("--forget_bias", type=float, default=1.0,
                       help="Forget bias for BasicLSTMCell.")
   parser.add_argument("--dropout", type=float, default=0.2,
                       help="Dropout rate (not keep_prob)")
+  # ？？？
   parser.add_argument("--max_gradient_norm", type=float, default=5.0,
                       help="Clip gradients to this norm.")
   parser.add_argument("--batch_size", type=int, default=128, help="Batch size.")
 
-  parser.add_argument("--steps_per_stats", type=int, default=100,
+  parser.add_argument("--steps_per_stats", type=int, default=100, # 做一次累计的间隔步数
                       help=("How many training steps to do per stats logging."
                             "Save checkpoint every 10x steps_per_stats"))
   parser.add_argument("--max_train", type=int, default=0,
                       help="Limit on the size of training data (0: no limit).")
+  # 将数据按照句长分组，用处是什么？？？
   parser.add_argument("--num_buckets", type=int, default=5,
                       help="Put data into similar-length buckets.")
 
-  # SPM
+  # SPM # 还不知道怎么用的？？？
   parser.add_argument("--subword_option", type=str, default="",
                       choices=["", "bpe", "spm"],
                       help="""\
@@ -213,23 +216,27 @@ def add_arguments(parser):
   # Misc
   parser.add_argument("--num_gpus", type=int, default=1,
                       help="Number of gpus in each worker.")
+  # ？？？
   parser.add_argument("--log_device_placement", type="bool", nargs="?",
                       const=True, default=False, help="Debug GPU allocation.")
-  parser.add_argument("--metrics", type=str, default="bleu",
+  parser.add_argument("--metrics", type=str, default="bleu", # 评价指标
                       help=("Comma-separated list of evaluations "
                             "metrics (bleu,rouge,accuracy)"))
-  parser.add_argument("--steps_per_external_eval", type=int, default=None,
+  # external evaluation 应该是指平均模型的验证
+  parser.add_argument("--steps_per_external_eval", type=int, default=None, 
                       help="""\
       How many training steps to do per external evaluation.  Automatically set
       based on data if None.\
       """)
-  parser.add_argument("--scope", type=str, default=None,
+  parser.add_argument("--scope", type=str, default=None, # 全局scope吗，
                       help="scope to put variables under")
-  parser.add_argument("--hparams_path", type=str, default=None,
+  # 这是标准参数的路径，然而并不知道标准参数、FLAGS这些参数的区别
+  parser.add_argument("--hparams_path", type=str, default=None, 
                       help=("Path to standard hparams json file that overrides"
                             "hparams values from FLAGS."))
   parser.add_argument("--random_seed", type=int, default=None,
                       help="Random seed (>0, set a specific seed).")
+  # 谁复写谁？？？
   parser.add_argument("--override_loaded_hparams", type="bool", nargs="?",
                       const=True, default=False,
                       help="Override loaded hparams with values specified")
@@ -242,10 +249,13 @@ def add_arguments(parser):
                       """))
 
   # Inference
+  # 加载哪个checkpoint来进行测试
   parser.add_argument("--ckpt", type=str, default="",
                       help="Checkpoint file to load a model for inference.")
+  # 被翻译的语料文件
   parser.add_argument("--inference_input_file", type=str, default=None,
                       help="Set to the text to decode.")
+  # ？？？ 
   parser.add_argument("--inference_list", type=str, default=None,
                       help=("A comma-separated list of sentence indices "
                             "(0-based) to decode."))
@@ -253,6 +263,7 @@ def add_arguments(parser):
                       help="Batch size for inference mode.")
   parser.add_argument("--inference_output_file", type=str, default=None,
                       help="Output file to store decoding results.")
+  # 用来计算评价分数的引用文件？？？
   parser.add_argument("--inference_ref_file", type=str, default=None,
                       help=("""\
       Reference file to compute evaluation scores (if provided).\
@@ -262,9 +273,10 @@ def add_arguments(parser):
       beam width when using beam search decoder. If 0 (default), use standard
       decoder with greedy helper.\
       """))
+  # 用在beam search中来惩罚句子长度的参数，原理还不知道
   parser.add_argument("--length_penalty_weight", type=float, default=0.0,
                       help="Length penalty for beam search.")
-  parser.add_argument("--sampling_temperature", type=float,
+  parser.add_argument("--sampling_temperature", type=float, # 同上
                       default=0.0,
                       help=("""\
       Softmax sampling temperature for inference decoding, 0.0 means greedy
@@ -276,7 +288,7 @@ def add_arguments(parser):
       inference.\
       """))
 
-  # Job info
+  # Job info # ？？？
   parser.add_argument("--jobid", type=int, default=0,
                       help="Task id of the worker.")
   parser.add_argument("--num_workers", type=int, default=1,

@@ -168,6 +168,7 @@ def get_config_proto(log_device_placement=False, allow_soft_placement=True,
 
 def format_text(words):
   """Convert a sequence words into sentence."""
+  # 函数功能：将若干个单词拼接成一个句子
   if (not hasattr(words, "__len__") and  # for numpy array
       not isinstance(words, collections.Iterable)):
     words = [words]
