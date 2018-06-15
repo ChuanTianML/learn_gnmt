@@ -60,7 +60,9 @@ class BaseModel(object):
       extra_args: model_helper.ExtraArgs, for passing customizable functions.
 
     """
-    assert isinstance(iterator, iterator_utils.BatchedInput)	# ？？？
+    assert isinstance(iterator, iterator_utils.BatchedInput)
+    # BatchedInput 返回Coordinate类，属性为5元组数据和一个iterator初始化器
+    # 所以，其实iterator并不是一个迭代器，而是由迭代器获取的一个batch的样本
     self.iterator = iterator
     self.mode = mode
     self.src_vocab_table = source_vocab_table	# src 词表
@@ -100,40 +102,44 @@ class BaseModel(object):
 
     # Embeddings
     self.init_embeddings(hparams, scope) # 初始化encoder和decoder的embedding
-    self.batch_size = tf.size(self.iterator.source_sequence_length) # ？？？
+    self.batch_size = tf.size(self.iterator.source_sequence_length) 
+    # 一个batch的source_sequence_length的大小，正好就是batch_size
 
     # Projection
-    with tf.variable_scope(scope or "build_network"): # 命名空间折腾做什么？？？
+    # 命名空间用来管理变量
+    with tf.variable_scope(scope or "build_network"):
       with tf.variable_scope("decoder/output_projection"):
         self.output_layer = layers_core.Dense( 
             hparams.tgt_vocab_size, use_bias=False, name="output_projection")
-       	"""
-       		这一步构造一个全连接的网络，Dense是一个类
+       	
+       	"""	这一步构造一个全连接的网络，Dense是一个类
        		其构造函数__init__(self, units)中的units：Integer or Long, dimensionality of the output space.
        	"""
 
     ## Train graph
     res = self.build_graph(hparams, scope=scope)
+    # build_graph() return logits, loss, final_context_state, sample_id
 
     if self.mode == tf.contrib.learn.ModeKeys.TRAIN:
-      self.train_loss = res[1]
-      self.word_count = tf.reduce_sum(
+      self.train_loss = res[1] # 交叉熵损失
+      self.word_count = tf.reduce_sum( # 单词数量是source 和 target 单词数量之和
           self.iterator.source_sequence_length) + tf.reduce_sum(
               self.iterator.target_sequence_length)
     elif self.mode == tf.contrib.learn.ModeKeys.EVAL:
       self.eval_loss = res[1]
     elif self.mode == tf.contrib.learn.ModeKeys.INFER:
+      # 从这里看，sample_id 是word id，用sample_id 找到单词，完成翻译
       self.infer_logits, _, self.final_context_state, self.sample_id = res
       self.sample_words = reverse_target_vocab_table.lookup(
           tf.to_int64(self.sample_id))
 
     if self.mode != tf.contrib.learn.ModeKeys.INFER:
       ## Count the number of predicted words for compute ppl.
-      self.predict_count = tf.reduce_sum(
+      self.predict_count = tf.reduce_sum( # 预测出的单词的数量
           self.iterator.target_sequence_length)
 
     self.global_step = tf.Variable(0, trainable=False)
-    params = tf.trainable_variables()
+    params = tf.trainable_variables() # 所有的变量
 
     # Gradients and SGD update operation for training the model.
     # Arrage for the embedding vars to appear at the beginning.
@@ -326,12 +332,14 @@ class BaseModel(object):
       ## Decoder
       logits, sample_id, final_context_state = self._build_decoder( # build decoder 图，输出了
           encoder_outputs, encoder_state, hparams)
+      # logits： 未归一化的概率，也就是模型的输出
+      # sample_id： ？？？
 
       ## Loss
-      if self.mode != tf.contrib.learn.ModeKeys.INFER:
-        with tf.device(model_helper.get_device_str(self.num_encoder_layers - 1,
+      if self.mode != tf.contrib.learn.ModeKeys.INFER: # 如果不是测试模式
+        with tf.device(model_helper.get_device_str(self.num_encoder_layers - 1, # 这是做什么
                                                    self.num_gpus)):
-          loss = self._compute_loss(logits)
+          loss = self._compute_loss(logits) # 根据模型的输出，计算损失，交叉熵损失
       else:
         loss = None
 
@@ -369,11 +377,12 @@ class BaseModel(object):
         single_cell_fn=self.single_cell_fn)
 
   def _get_infer_maximum_iterations(self, hparams, source_sequence_length):
-    """Maximum decoding steps at inference time.""" # inference time 是什么？？？
-    if hparams.tgt_max_len_infer:
+    """Maximum decoding steps at inference time.""" 
+    # 测试时的最大decode步数（time step），就是翻译一个多长的句子
+    if hparams.tgt_max_len_infer: # 如果参数中有设置，那就使用参数设置
       maximum_iterations = hparams.tgt_max_len_infer
       utils.print_out("  decoding maximum_iterations %d" % maximum_iterations)
-    else:
+    else: # 如果没有参数设置，则用source句子的最长程度除以2作为翻译长度
       # TODO(thangluong): add decoding_length_factor flag
       decoding_length_factor = 2.0
       max_encoder_length = tf.reduce_max(source_sequence_length)
@@ -393,13 +402,14 @@ class BaseModel(object):
       A tuple of final logits and final decoder state:
         logits: size [time, batch_size, vocab_size] when time_major=True.
     """
-    tgt_sos_id = tf.cast(self.tgt_vocab_table.lookup(tf.constant(hparams.sos)), # ？？？干啥使
+    tgt_sos_id = tf.cast(self.tgt_vocab_table.lookup(tf.constant(hparams.sos)), # 辅助词id
                          tf.int32)
     tgt_eos_id = tf.cast(self.tgt_vocab_table.lookup(tf.constant(hparams.eos)),
                          tf.int32)
     iterator = self.iterator
 
     # maximum_iteration: The maximum decoding steps.
+    # 也就是要翻译一个多长的句子
     maximum_iterations = self._get_infer_maximum_iterations( # decode 最大步数，inference time是什么
         hparams, iterator.source_sequence_length)
 
@@ -441,6 +451,9 @@ class BaseModel(object):
         helper = tf.contrib.seq2seq.TrainingHelper( # 这个helper是干啥使的？？？
             decoder_emb_inp, iterator.target_sequence_length,
             time_major=self.time_major)
+        # A helper for use during training. Only reads inputs.
+        # helper应该就是负责输入数据的
+		# Returned sample_ids are the argmax of the RNN output logits.
 
         # Decoder
         my_decoder = tf.contrib.seq2seq.BasicDecoder( # TensorFlow内置的decoder
@@ -467,7 +480,9 @@ class BaseModel(object):
         # We chose to apply the output_layer to all timesteps for speed:
         #   10% improvements for small models & 20% for larger ones.
         # If memory is a concern, we should apply output_layer per timestep.
-        logits = self.output_layer(outputs.rnn_output) # 经过全连接网络层，并经过激活，得到在词典上的概率分布
+        logits = self.output_layer(outputs.rnn_output) 
+        # 经过全连接网络层，并经过激活，得到在词典上的概率分布
+        # 上网查，发现这个logits是未归一化的概率
 
       ## Inference
       else:
@@ -487,7 +502,7 @@ class BaseModel(object):
               beam_width=beam_width, #Python integer, the number of beams.
               output_layer=self.output_layer, #  An instance of tf.layers.Layer, i.e., tf.layers.Dense. Optional layer to apply to the RNN output prior to storing the result or sampling.
               length_penalty_weight=length_penalty_weight) # Float weight to penalize length. Disabled with 0.0.
-        else: ## 如果不用beamsearch，用什么？？？
+        else: ## 如果不用beamsearch，
           # Helper
           sampling_temperature = hparams.sampling_temperature
           """
@@ -555,12 +570,24 @@ class BaseModel(object):
 
   def _compute_loss(self, logits):
     """Compute optimization loss."""
-    target_output = self.iterator.target_output
+    target_output = self.iterator.target_output # 翻译的标准答案
     if self.time_major:
-      target_output = tf.transpose(target_output)
-    max_time = self.get_max_time(target_output)
+      target_output = tf.transpose(target_output) 
+    max_time = self.get_max_time(target_output) # 标准翻译句子的长度，也就是time step的数量
     crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(
         labels=target_output, logits=logits)
+    # return: A Tensor of the same shape as labels and of the same type as logits with the softmax cross entropy loss.
+    # label:  [batch_size, max_time]
+    # logits: [batch_size, max_time, num_classes]
+    # 两个参数：
+    # 前者是label，也就是每个单词的id，后者是模型输出
+    # 根据此计算交叉熵损失
+
+    # 下面计算一个mask，意思是取标准答案长度范围内的损失
+    # tf.sequence_mask([1, 3, 2], 5)
+    # [[True, False, False, False, False],
+    # [True, True, True, False, False],
+    # [True, True, False, False, False]]
     target_weights = tf.sequence_mask(
         self.iterator.target_sequence_length, max_time, dtype=logits.dtype)
     if self.time_major:
@@ -632,6 +659,9 @@ class Model(BaseModel):
             hparams, num_layers, num_residual_layers)
         # 返回的是单步time step的多个神经元，数量是神经元层数，也就是说这个cell是一步的cell，而不是一个神经元
 
+
+        # encoder_outputs： [source_sequence_length, dimension] 推测的
+        # encoder_state:	[num_layers, dimension]
         encoder_outputs, encoder_state = tf.nn.dynamic_rnn( # 使用TensorFlow API构建单向网络
             cell,
             encoder_emb_inp,
@@ -640,8 +670,8 @@ class Model(BaseModel):
             time_major=self.time_major,
             swap_memory=True)
       elif hparams.encoder_type == "bi": # 如果是双向网络
-        num_bi_layers = int(num_layers / 2)
-        num_bi_residual_layers = int(num_residual_layers / 2)
+        num_bi_layers = int(num_layers / 2) # 总层数除2是双向网络层数
+        num_bi_residual_layers = int(num_residual_layers / 2) # 一层双向网络内部，不再做额外连接
         utils.print_out("  num_bi_layers = %d, num_bi_residual_layers=%d" % # 网络形状告知
                         (num_bi_layers, num_bi_residual_layers))
 
@@ -653,10 +683,19 @@ class Model(BaseModel):
                 hparams=hparams,
                 num_bi_layers=num_bi_layers,
                 num_bi_residual_layers=num_bi_residual_layers))
-        """bi_encoder_state的形状： (output_state_fw, output_state_bw) 
-        		output_state_fw: [num_bi_layers, batch_size, cell_fw.output_state_size] 这形状是我推测的
-	   			output_state_bw: [num_bi_layers, batch_size, cell_bw.output_state_size]
-        """
+		    """
+		    (outputs, output_states) 
+			    outputs:  (output_fw, output_bw) 
+			    	output_fw: 
+			    		if False == time_major: [batch_size, max_time, cell_fw.output_size]
+			    		if True  == time_major: [max_time, batch_size, cell_fw.output_size]
+			    	output_bw:
+			    		if False == time_major: [batch_size, max_time, cell_bw.output_size]
+			    		if True  == time_major: [max_time, batch_size, cell_bw.output_size]
+			   	output_states: (output_state_fw, output_state_bw)  
+			   		output_state_fw: [num_bi_layers, batch_size, cell_fw.output_state_size] 这形状是我推测的
+			   		output_state_bw: [nun_bi_layers, batch_size, cell_bw.output_state_size]
+		    """
 
         if num_bi_layers == 1: # 如果只有一个双向网络，
           encoder_state = bi_encoder_state

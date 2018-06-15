@@ -28,6 +28,12 @@ class BatchedInput(
                            ("initializer", "source", "target_input",
                             "target_output", "source_sequence_length",
                             "target_sequence_length"))):
+    # collections.namedtuple 功能：创造一个Coordinate类，拥有以上那些属性
+    # 例如：
+    # coordinate = namedtuple('Coordinate', ['x', 'y'])
+    # co = coordinate(10,20) 
+    # print co.x,co.y 
+    # >: 10 20
   pass
 
 
@@ -83,7 +89,7 @@ def get_iterator(src_dataset,
                  sos,
                  eos,
                  random_seed,
-                 num_buckets,
+                 num_buckets, # 按照句子长度分组的组数
                  src_max_len=None,
                  tgt_max_len=None,
                  num_parallel_calls=4,
@@ -105,6 +111,7 @@ def get_iterator(src_dataset,
   # 这是要把数据切分开么，从而给多个电脑计算，前者参数是分成多少份，后者参数是返回哪一份（也就是电脑id）
   # Creates a Dataset that includes only 1/num_shards of this dataset.
   # This dataset operator is very useful when running distributed training, as it allows each worker to read a unique subset.
+
   if skip_count is not None: 
     src_tgt_dataset = src_tgt_dataset.skip(skip_count)
     # Creates a Dataset that skips count elements from this dataset. 然而，为甚么要跳过一些样本呢？
@@ -126,7 +133,7 @@ def get_iterator(src_dataset,
   # 具体来说，string_split() 返回一个SparseTensor实例，包含3个属性，indices、values、shape，
   # 意思是用更复杂也是省空间的方式保存一个稀疏的tensor，values是一个列表，这个地方的values应该是[word1, word2, ...]
 
-  # Filter zero length input sequences. # 过滤掉零长样本
+  # Filter zero length input sequences. # 过滤掉零长样本，必须src和tgt都非零长
   src_tgt_dataset = src_tgt_dataset.filter(
       lambda src, tgt: tf.logical_and(tf.size(src) > 0, tf.size(tgt) > 0))
 
@@ -163,12 +170,24 @@ def get_iterator(src_dataset,
       num_parallel_calls=num_parallel_calls).prefetch(output_buffer_size)
 
   # Bucket by source sequence length (buckets for lengths 0-9, 10-19, ...)
-  def batching_func(x):
+  
+  # 函数功能：
+  # x: tf.data.Dataset类实例 
+  def batching_func(x): 
+    # 函数功能：将x做padding和batching
+    # x: tf.data.Dataset类实例
     return x.padded_batch(
+      # 函数功能： Combines consecutive elements of this dataset into padded batches.
+      #           研究了下，这意思应该是做padding，因为一个batch内部句子长度可能不同，需要补成相同的
+      #           用结束符来补
         batch_size,
         # The first three entries are the source and target line rows;
         # these have unknown-length vectors.  The last two entries are
         # the source and target row sizes; these are scalars.
+        # 每个样本有5个元组元素（src, <sos>tgt, tgt<eos>, len(src), len(tgt_in)），5个元素的shape都不相同
+        # 所以需要指定他们的shape
+        # None 表示用当前batch里面最长的作为统一的长度
+        # 空表示沿用原shape
         padded_shapes=(
             tf.TensorShape([None]),  # src
             tf.TensorShape([None]),  # tgt_input
@@ -178,14 +197,16 @@ def get_iterator(src_dataset,
         # Pad the source and target sequences with eos tokens.
         # (Though notice we don't generally need to do this since
         # later on we will be masking out calculations past the true sequence.
-        padding_values=(
-            src_eos_id,  # src
+        padding_values=( #
+          # A nested structure of scalar-shaped tf.Tensor, representing the padding values to use for the respective components.
+          # Defaults are 0 for numeric types and the empty string for string types.
+            src_eos_id,  # src # 一个 scalar-shaped的tf.Tensor表示padding用到的值
             tgt_eos_id,  # tgt_input
             tgt_eos_id,  # tgt_output
-            0,  # src_len -- unused
+            0,  # src_len -- unused # 0 表示 对应数字类型（即不做padding）
             0))  # tgt_len -- unused
 
-  if num_buckets > 1:
+  if num_buckets > 1: # 如果要按照句长分组
 
     def key_func(unused_1, unused_2, unused_3, src_len, tgt_len):
       # Calculate bucket_width by maximum source sequence length.
@@ -206,23 +227,31 @@ def get_iterator(src_dataset,
     def reduce_func(unused_key, windowed_data):
       return batching_func(windowed_data)
 
-    batched_dataset = src_tgt_dataset.apply( # 将数据进行 分组、reduce 处理
+    batched_dataset = src_tgt_dataset.apply( # 将数据进行 分组、padding 处理
         tf.contrib.data.group_by_window(
             key_func=key_func, reduce_func=reduce_func, window_size=batch_size))
     # group_by_window(key_func, reduce_func, window_size)
     # 将数据按照键值分组，并reduce它们，？？？
+    # 研究了下，key_func负责给分组id，这个id是按照长度给的，也就意味着，key_func负责按句长分组
+    # reduce_func 内置了batching_func函数，也就是负责给小组内的数据做（padding+bathcing）
     #   key_func: 生成键值的函数
-    #   reduce_func: 
+    #   reduce_func: A function mapping a key and a dataset of up to window_size consecutive elements matching that key to another dataset.
     # return: A Dataset transformation function.
 
-  else:
-    batched_dataset = batching_func(src_tgt_dataset)
+  else: # 如果不按照句长分组
+    batched_dataset = batching_func(src_tgt_dataset) # 做一下（padding+batching）就好了。
 
   # 下面这坨代码的含义看起来像是，构造了一个迭代，然后返回了一组数据
   # 但是这个函数get_iterator不是应该返回迭代器么
-  batched_iter = batched_dataset.make_initializable_iterator()
+  batched_iter = batched_dataset.make_initializable_iterator() 
+  # Creates an Iterator for enumerating the elements of this dataset.
+  # The returned iterator will be in an uninitialized state
+
   (src_ids, tgt_input_ids, tgt_output_ids, src_seq_len,
    tgt_seq_len) = (batched_iter.get_next())
+  # Returns a nested structure of tf.Tensors representing the next element.
+  # get_next() 的功能的确是返回一个数据输入的张量
+
   return BatchedInput(
       initializer=batched_iter.initializer,
       source=src_ids,
@@ -230,3 +259,4 @@ def get_iterator(src_dataset,
       target_output=tgt_output_ids,
       source_sequence_length=src_seq_len,
       target_sequence_length=tgt_seq_len)
+  # 返回一个Coordinate类实例，拥有以上这些属性，并且每个属性都被赋值
