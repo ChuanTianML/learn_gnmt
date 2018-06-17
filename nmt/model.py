@@ -36,6 +36,7 @@ __all__ = ["BaseModel", "Model"]
 class BaseModel(object):
   """Sequence-to-sequence base class.
   """
+  
 
   def __init__(self,
                hparams,
@@ -598,7 +599,10 @@ class BaseModel(object):
     return loss
 
   def _get_infer_summary(self, hparams):
-    return tf.no_op()
+    return tf.no_op() # 能干啥？
+    # Does nothing. Only useful as a placeholder for control edges.
+    # Args:	name: A name for the operation (optional).
+	# Return: The created Operation.
 
   def infer(self, sess):
     assert self.mode == tf.contrib.learn.ModeKeys.INFER

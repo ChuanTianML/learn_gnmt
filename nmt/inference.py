@@ -88,12 +88,12 @@ def inference(ckpt,
               jobid=0,
               scope=None):
   """Perform translation."""
-  if hparams.inference_indices:
+  if hparams.inference_indices: # ？？？
     assert num_workers == 1
 
-  if not hparams.attention:
-    model_creator = nmt_model.Model
-  elif hparams.attention_architecture == "standard":
+  if not hparams.attention: # 没有attention机制的模型
+    model_creator = nmt_model.Model # 得到的只是一个类，没有实例化
+  elif hparams.attention_architecture == "standard": # 有attention机制的模型以及其变种
     model_creator = attention_model.AttentionModel
   elif hparams.attention_architecture in ["gnmt", "gnmt_v2"]:
     model_creator = gnmt_model.GNMTModel

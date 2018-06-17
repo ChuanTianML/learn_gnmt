@@ -201,19 +201,19 @@ def create_infer_model(model_creator, hparams, scope=None, extra_args=None):
     reverse_tgt_vocab_table = lookup_ops.index_to_string_table_from_file(
         tgt_vocab_file, default_value=vocab_utils.UNK)
 
-    # 数据占位，batch size 占位
+    # 输入数据的占位，batch size 的占位
     src_placeholder = tf.placeholder(shape=[None], dtype=tf.string)
     batch_size_placeholder = tf.placeholder(shape=[], dtype=tf.int64)
 
-    src_dataset = tf.data.Dataset.from_tensor_slices(
+    src_dataset = tf.data.Dataset.from_tensor_slices( # 从输入数据的占位符，接收到输入数据
         src_placeholder)
-    iterator = iterator_utils.get_infer_iterator(
+    iterator = iterator_utils.get_infer_iterator( # 进而构造迭代器
         src_dataset,
         src_vocab_table,
         batch_size=batch_size_placeholder,
         eos=hparams.eos,
         src_max_len=hparams.src_max_len_infer)
-    model = model_creator(
+    model = model_creator( # 创建模型实例
         hparams,
         iterator=iterator,
         mode=tf.contrib.learn.ModeKeys.INFER,
@@ -228,6 +228,7 @@ def create_infer_model(model_creator, hparams, scope=None, extra_args=None):
       src_placeholder=src_placeholder,
       batch_size_placeholder=batch_size_placeholder,
       iterator=iterator)
+  # InferModel是一个类，其属性包括上面括号那些
 
 
 def _get_embed_device(vocab_size): # ？？？分布式的东西？

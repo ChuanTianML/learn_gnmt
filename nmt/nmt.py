@@ -256,6 +256,7 @@ def add_arguments(parser):
   parser.add_argument("--inference_input_file", type=str, default=None,
                       help="Set to the text to decode.")
   # ？？？ 
+  # 字面意思：逗号分隔的句子指数
   parser.add_argument("--inference_list", type=str, default=None,
                       help=("A comma-separated list of sentence indices "
                             "(0-based) to decode."))
@@ -503,14 +504,15 @@ def extend_hparams(hparams):
     tf.gfile.MakeDirs(hparams.out_dir)
 
   # Evaluation
-  # 森马东西？？？
-  for metric in hparams.metrics:
+  # metrics是评价指标，有(bleu,rouge,accuracy)
+  for metric in hparams.metrics: 
+    # 这意思是可以同时计算多个评价指标，并且为了记录每个评价指标的最优值，为每个建了一个文件夹，保存最优值
     hparams.add_hparam("best_" + metric, 0)  # larger is better
     best_metric_dir = os.path.join(hparams.out_dir, "best_" + metric)
     hparams.add_hparam("best_" + metric + "_dir", best_metric_dir)
     tf.gfile.MakeDirs(best_metric_dir)
 
-    if hparams.avg_ckpts:
+    if hparams.avg_ckpts: # 如果要测试平均模型，还为每个评价指标建了个文件夹，文件名中带着avg
       hparams.add_hparam("avg_best_" + metric, 0)  # larger is better
       best_metric_dir = os.path.join(hparams.out_dir, "avg_best_" + metric)
       hparams.add_hparam("avg_best_" + metric + "_dir", best_metric_dir)
@@ -607,20 +609,26 @@ def run_main(flags, default_hparams, train_fn, inference_fn, target_session=""):
   hparams = create_or_load_hparams(
       out_dir, default_hparams, flags.hparams_path, save_hparams=(jobid == 0))
 
-  if flags.inference_input_file:
+  if flags.inference_input_file: # 如果设置了inference语料，则进行翻译，否则进行训练
     # Inference indices
-    hparams.inference_indices = None
+    # 这个参数什么意思， 有意设置成了None，说明这个参数可能并不是实现指定好的，而是在这里添加的
+    hparams.inference_indices = None 
     if flags.inference_list:
-      (hparams.inference_indices) = (
+      (hparams.inference_indices) = ( # 也就是说，inference_indices是一个列表，元素为句子的id，这些句子是等待翻译的句子
           [int(token)  for token in flags.inference_list.split(",")])
 
     # Inference
-    trans_file = flags.inference_output_file
-    ckpt = flags.ckpt
+    trans_file = flags.inference_output_file # 翻译之后输出到什么文件
+    ckpt = flags.ckpt # flag.ckpt应该是指定使用哪个模型来进行翻译，如果不指定就使用最新的模型进行翻译
     if not ckpt:
       ckpt = tf.train.latest_checkpoint(out_dir)
     inference_fn(ckpt, flags.inference_input_file,
                  trans_file, hparams, num_workers, jobid)
+    # 进行翻译用的参数
+    # ckpt： 模型
+    # flags.inference_input_file： 输入文件，内容应该是分行的，每行一个待翻译的句子
+    # trans_file: 翻译输出文件
+    # hparams： 至少有一个hparams.inference_indices参数，里面是句子idices
 
     # Evaluation
     ref_file = flags.inference_ref_file
@@ -648,9 +656,19 @@ def main(unused_argv):
 
 
 if __name__ == "__main__":
+  # 构建参数解析器，添加参数项
   nmt_parser = argparse.ArgumentParser()
   add_arguments(nmt_parser)
+
+  # 
   FLAGS, unparsed = nmt_parser.parse_known_args()
-  # FLAGS是解析成功的参数，是一个argparse.Namespace类实例
-  # unparsed是不认识的没有解析的参数，key和value被一视同仁保存在一个列表中
+  # FLAGS是解析成功的参数，
+  #   是一个argparse.Namespace类实例，用FLAGS.param可以访问参数
+  #   解析成功的参数包括命中的参数和具有默认值的参数
+  # unparsed是不认识的没有解析的参数，key和value被一视同仁作为字符串保存在一个列表中
+  # 例子见 https://blog.csdn.net/m0_37041325/article/details/77934623
+
+  # 运行
+  # FLAGS是全局变量，所以没有传进run函数
+  # sys.argv[0]表示代码本身文件路径
   tf.app.run(main=main, argv=[sys.argv[0]] + unparsed)
