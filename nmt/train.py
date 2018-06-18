@@ -302,6 +302,9 @@ def train(hparams, scope=None, target_session=""):
       raise ValueError("Unknown attention architecture %s" %
                        hparams.attention_architecture)
 
+  # train_model的数据输入是iterator，而eval_model的数据输入是文件名占位符，为什么？？？
+  # 应该是因为：  train_model是迭代进行的
+  #              eval_model和infer_model 都是从checkpoint中加载的
   train_model = model_helper.create_train_model(model_creator, hparams, scope) # 返回一个“字典”，内容有图、模型、迭代器
   eval_model = model_helper.create_eval_model(model_creator, hparams, scope) # 返回“字典”，内容有图、模型、数据文件名占位、迭代器
   infer_model = model_helper.create_infer_model(model_creator, hparams, scope) # 返回“字典”，内容有图、模型、数据文件名占位、batch_size占位，迭代器

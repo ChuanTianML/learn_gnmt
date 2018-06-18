@@ -173,6 +173,7 @@ def get_iterator(src_dataset,
   
   # 函数功能：
   # x: tf.data.Dataset类实例 
+  # Return: tf.data.Dataset类实例
   def batching_func(x): 
     # 函数功能：将x做padding和batching
     # x: tf.data.Dataset类实例
