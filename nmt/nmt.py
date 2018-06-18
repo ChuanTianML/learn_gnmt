@@ -302,8 +302,10 @@ def add_arguments(parser):
 
 def create_hparams(flags):
   """Create training hparams."""
-  # flags: 是一个argparse.Namespace实例
-  # 所以这个函数的意义是将 argparse.Namespace 转换为 tf.contrib.training.HParams 实例么，为什么？？？
+  # 函数功能： 将 argparse.Namespace 转换为 tf.contrib.training.HParams 实例
+  #           因为后者还有前者不具备的功能，例如添加参数
+  # Arg：
+  #   flags: 是一个argparse.Namespace实例
   return tf.contrib.training.HParams(
       # Data
       src=flags.src,
@@ -526,12 +528,19 @@ def ensure_compatible_hparams(hparams, default_hparams, hparams_path):
   # hparams： 从文件加载的参数
   # default_hparams： 解析获得的参数
   # hparams_path： 标准参数
-  default_hparams = utils.maybe_parse_standard_hparams( # 首先合并解析参数和标准参数
-      default_hparams, hparams_path)
+
+  # 从下面的逻辑，看出3种参数的关系，真TM乱
+  # 首先，如果用标准参数，那么 标准参数 > 解析参数
+  # 其次，可以由用户指定，是否使用 解析参数 覆盖 加载的参数
+
+  # 可以简单理解为： 标准参数 > 解析参数 > 外部加载的参数
+
+  # 首先从hparams_path加载standard params，覆盖对应的 default params
+  default_hparams = utils.maybe_parse_standard_hparams(default_hparams, hparams_path)
 
   # For compatible reason, if there are new fields in default_hparams,
   #   we add them to the current hparams
-  # 如果加载的参数中不包含某个新解析的参数，则将该参数加到合并的参数列表中
+  # 合并 default params 和 hparams，优先级： hparams > default_hparams
   default_config = default_hparams.values()
   config = hparams.values()
   for key in default_config:
@@ -553,18 +562,29 @@ def ensure_compatible_hparams(hparams, default_hparams, hparams_path):
 def create_or_load_hparams(
     out_dir, default_hparams, hparams_path, save_hparams=True):
   """Create hparams or load hparams from out_dir."""
-  # 总结来说，涉及到3种参数，解析参数default_hparams，标准参数hparams_path，存储参数out_dir，貌似解析参数优先级最高
-  # out_dir: 参数加载或保存路径
-  # default_hparams： tf.contrib.training.HParams类实例
-  # hparams_path： ？？？标准参数保存路径？ 
-  # ？？？ 标准参数保存路径中的参数和out_dir中的参数有什么区别
-  hparams = utils.load_hparams(out_dir) # tf.contrib.training.HParams类实例或者None
-  if not hparams: # 如果存储参数不存在，则首先合并解析后的参数和标准参数，然后扩展参数
+  # 函数功能：
+  #   总结来说，涉及到3种参数，解析参数default_hparams，标准参数hparams_path，存储参数out_dir
+  #   3种参数的优先级可以简单理解为：  标准参数 > 解析参数 > 外部加载的参数
+  # Args:
+  #   out_dir: 外部参数加载、保存路径
+  #   default_hparams： tf.contrib.training.HParams类实例，解析获得的参数
+  #   hparams_path： 标准参数的路径
+  # Return:
+  #   合并后的参数，tf.contrib.training.HParams类实例
+
+  # 从外部文件加载参数
+  # 获得tf.contrib.training.HParams类实例或者None
+  hparams = utils.load_hparams(out_dir) 
+  
+  if not hparams: 
+    # 如果外部参数不存在： 
+    #   用standard params 覆盖 default params
+    #   扩展参数，即进行一些参数预处理（例如知道了网络层数，提前计算一下额外连接层数）
     hparams = default_hparams 
-    hparams = utils.maybe_parse_standard_hparams(
-        hparams, hparams_path)
+    hparams = utils.maybe_parse_standard_hparams(hparams, hparams_path) # 从hparams_path加载新参数，覆盖hparams
     hparams = extend_hparams(hparams)
-  else: # 如果存储参数存在，则将存储参数、解析参数、标准参数合并，确定不冲突
+  else: 
+    # 如果外部参数存在，则将外部参数、解析参数、标准参数合并，还是想说真TM乱
     hparams = ensure_compatible_hparams(hparams, default_hparams, hparams_path)
 
   # Save HParams
@@ -606,12 +626,14 @@ def run_main(flags, default_hparams, train_fn, inference_fn, target_session=""):
   # Load hparams.
   # default_hparams 中是程序解析获得的参数，
   # 下面这个函数，从解析参数、存储参数、标准参数3部分中获取参数，并处理兼容，形成最终的参数
+  # 简单地理解，标准参数 > 解析参数 > 外部加载的参数
   hparams = create_or_load_hparams(
       out_dir, default_hparams, flags.hparams_path, save_hparams=(jobid == 0))
 
-  if flags.inference_input_file: # 如果设置了inference语料，则进行翻译，否则进行训练
+  if flags.inference_input_file: 
+    # 如果设置了inference语料，则进行翻译，否则进行训练
+
     # Inference indices
-    # 这个参数什么意思， 有意设置成了None，说明这个参数可能并不是实现指定好的，而是在这里添加的
     hparams.inference_indices = None 
     if flags.inference_list:
       (hparams.inference_indices) = ( # 也就是说，inference_indices是一个列表，元素为句子的id，这些句子是等待翻译的句子
@@ -641,14 +663,20 @@ def run_main(flags, default_hparams, train_fn, inference_fn, target_session=""):
             hparams.subword_option)
         utils.print_out("  %s: %.1f" % (metric, score))
   else:
+    # 如果没有设置inference语料，则进行模型训练，否则进行翻译
     # Train
     train_fn(hparams, target_session=target_session)
 
 
 def main(unused_argv):
+  # Arg：
+  #   unused_argv： 代码本身文件路径和解析器不认识的参数
+
   # FLAGS 是解析成功的参数，是一个argparse.Namespace类实例
-  default_hparams = create_hparams(FLAGS) # 返回一个tf.contrib.training.HParams类实例
-  # default_hparams 是由FLAGS而来的，FLAGS是解析来的，为什么叫 默认参数呢
+  # 返回一个tf.contrib.training.HParams类实例
+  # 这一步功能： 将参数放到tf.contrib.training.HParams实例中，方便之后添加参数
+  default_hparams = create_hparams(FLAGS) 
+  
   train_fn = train.train # 从train.py中引用的train()函数
   inference_fn = inference.inference# inference.py中引用的inference()函数
   run_main(FLAGS, default_hparams, train_fn, inference_fn)

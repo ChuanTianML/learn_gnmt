@@ -83,6 +83,10 @@ def print_hparams(hparams, skip_patterns=None, header=None):
 
 def load_hparams(model_dir):
   """Load hparams from an existing model directory."""
+  # 函数功能： 从json文件中加载参数
+  # Arg： 参数文件路径
+  # Return： tf.contrib.training.HParams实例
+
   hparams_file = os.path.join(model_dir, "hparams")
   if tf.gfile.Exists(hparams_file):
     print_out("# Loading hparams from %s" % hparams_file)

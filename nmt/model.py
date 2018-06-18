@@ -181,6 +181,8 @@ class BaseModel(object):
       self.infer_summary = self._get_infer_summary(hparams)
 
     # Saver
+    # 用来加载和保存模型
+    # 	hparams.num_keep_ckpts： Max number of checkpoints to keep.
     self.saver = tf.train.Saver(
         tf.global_variables(), max_to_keep=hparams.num_keep_ckpts)
 
@@ -597,6 +599,7 @@ class BaseModel(object):
     loss = tf.reduce_sum(
         crossent * target_weights) / tf.to_float(self.batch_size)
     return loss
+
 
   def _get_infer_summary(self, hparams):
     return tf.no_op() # 能干啥？
