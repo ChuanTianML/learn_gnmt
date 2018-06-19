@@ -468,7 +468,7 @@ def train(hparams, scope=None, target_session=""):
 
   # 验证表现最好的模型
   utils.print_out("# Start evaluating saved best models.")
-  for metric in hparams.metrics: # 这是个啥参数
+  for metric in hparams.metrics: # 评价指标
     best_model_dir = getattr(hparams, "best_" + metric + "_dir")
     summary_writer = tf.summary.FileWriter(
         os.path.join(best_model_dir, summary_name), infer_model.graph)
